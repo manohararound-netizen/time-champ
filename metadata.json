@@ -1,0 +1,6 @@
+{
+  "name": "Around29 Workspace Tracker",
+  "description": "Around29 Admin & Employee dashboards monitoring opened system windows, processes, and active breaks every 5 minutes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
