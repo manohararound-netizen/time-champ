@@ -31,7 +31,11 @@ import {
   LayoutGrid,
   ShieldAlert,
   LogOut,
-  FileText
+  FileText,
+  Power,
+  Terminal,
+  Settings,
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -47,6 +51,22 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<
     'dashboard' | 'tracker' | 'employees' | 'projects' | 'history' | 'breaks-claims' | 'approvals' | 'system-monitor' | 'employee-dashboard'
   >('dashboard');
+
+  // Simulated Workstation Bootup Sequence States
+  const [systemBootState, setSystemBootState] = useState<'idle' | 'booting' | 'booted'>(() => {
+    const active = localStorage.getItem('timechamp_active_session');
+    return active ? 'booted' : 'booting';
+  });
+  const [bootProgress, setBootProgress] = useState(0);
+  const [bootStep, setBootStep] = useState('');
+  const [isAutostartEnabled, setIsAutostartEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('timechamp_autostart_enabled');
+    return saved !== 'false'; // defaults to true
+  });
+  const [isDesktopAgentInstalled, setIsDesktopAgentInstalled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('timechamp_desktop_agent_installed');
+    return saved === 'true'; // defaults to false
+  });
 
   // Core States (backed by localStorage)
   const [employees, setEmployees] = useState<Employee[]>(() => {
@@ -161,9 +181,64 @@ export default function App() {
     }
   }, [activeBreak]);
 
+  // Sync autostart configuration to localStorage
+  useEffect(() => {
+    localStorage.setItem('timechamp_autostart_enabled', String(isAutostartEnabled));
+  }, [isAutostartEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('timechamp_desktop_agent_installed', String(isDesktopAgentInstalled));
+  }, [isDesktopAgentInstalled]);
+
+  // Simulated Workstation Power-on / OS Bootup tracking sequence
+  useEffect(() => {
+    if (systemBootState === 'booting') {
+      setBootProgress(0);
+      setBootStep('Starting workstation host systems...');
+      
+      const bootSteps = [
+        { progress: 15, step: 'Powering up hardware & BIOS POST check...' },
+        { progress: 35, step: 'Loading Operating System services (Windows/macOS)...' },
+        { progress: 55, step: 'Opening TimeChamp client & initializing agent service daemon...' },
+        { progress: 75, step: 'Verifying network credentials & secure API handshake...' },
+        { progress: 90, step: 'Syncing project configurations & active task metadata...' },
+        { progress: 100, step: 'Workstation ONLINE. Triggering auto-start tracking services...' }
+      ];
+
+      let currentIndex = 0;
+      const interval = setInterval(() => {
+        if (currentIndex < bootSteps.length) {
+          const current = bootSteps[currentIndex];
+          setBootProgress(current.progress);
+          setBootStep(current.step);
+          currentIndex++;
+        } else {
+          clearInterval(interval);
+          setSystemBootState('booted');
+          
+          // Auto-start tracking if enabled, user is logged in, and no session is already active
+          if (isAutostartEnabled && currentEmployeeId && !activeSession) {
+            handleStartTracking(
+              currentEmployeeId, 
+              'default', 
+              'Software Engineering', 
+              'Automated session started via Workstation Boot Autostart'
+            );
+          }
+        }
+      }, 400);
+
+      return () => clearInterval(interval);
+    }
+  }, [systemBootState, isAutostartEnabled, currentEmployeeId]);
+
   // Portal Login/Logout handlers
   const handleLogin = (id: string) => {
     setCurrentEmployeeId(id);
+  };
+
+  const handleToggleDesktopAgent = (installed: boolean) => {
+    setIsDesktopAgentInstalled(installed);
   };
 
   const handleLogout = () => {
@@ -248,14 +323,15 @@ export default function App() {
   ) => {
     if (!currentEmployeeId) return;
     const emp = employees.find(e => e.id === currentEmployeeId);
-    const proj = projects.find(p => p.id === projectId);
-    if (!emp || !proj) return;
+    if (!emp) return;
+    
+    const proj = projects.find(p => p.id === projectId) || { id: 'default', name: 'General' };
 
     const newClaim: TimeClaim = {
       id: `claim-${Date.now()}`,
       employeeId: currentEmployeeId,
       employeeName: emp.name,
-      projectId,
+      projectId: proj.id,
       projectName: proj.name,
       taskName,
       date,
@@ -279,6 +355,21 @@ export default function App() {
       return c;
     }));
 
+    let startTimeStr = new Date().toISOString();
+    let endTimeStr = new Date().toISOString();
+    try {
+      const parsedStart = new Date(`${claim.date}T09:00:00`);
+      const parsedEnd = new Date(`${claim.date}T17:00:00`);
+      if (!isNaN(parsedStart.getTime())) {
+        startTimeStr = parsedStart.toISOString();
+      }
+      if (!isNaN(parsedEnd.getTime())) {
+        endTimeStr = parsedEnd.toISOString();
+      }
+    } catch (e) {
+      console.error('Error parsing claim date, falling back to safe defaults:', e);
+    }
+
     // Create a complete historic task log
     const completedSession: TaskSession = {
       id: `sess-claim-${Date.now()}`,
@@ -287,8 +378,8 @@ export default function App() {
       projectId: claim.projectId,
       projectName: claim.projectName,
       taskName: claim.taskName,
-      startTime: new Date(`${claim.date}T09:00:00`).toISOString(),
-      endTime: new Date(`${claim.date}T17:00:00`).toISOString(),
+      startTime: startTimeStr,
+      endTime: endTimeStr,
       durationSeconds: claim.hours * 3600,
       description: `[Claims Adjustment] ${claim.reason}`,
       productivityScore: 92,
@@ -340,15 +431,16 @@ export default function App() {
     description: string
   ) => {
     const emp = employees.find(e => e.id === employeeId);
-    const proj = projects.find(p => p.id === projectId);
-    if (!emp || !proj) return;
+    if (!emp) return;
+    
+    const proj = projects.find(p => p.id === projectId) || { id: 'default', name: 'General' };
 
     // Create active session
     const newSession: TaskSession = {
       id: `sess-${Date.now()}`,
       employeeId,
       employeeName: emp.name,
-      projectId,
+      projectId: proj.id,
       projectName: proj.name,
       taskName,
       startTime: new Date().toISOString(),
@@ -584,6 +676,8 @@ export default function App() {
             onLogin={handleLogin}
             onLogout={handleLogout}
             onAddClaim={handleSubmitClaim}
+            onApproveClaim={handleApproveClaim}
+            onRejectClaim={handleRejectClaim}
           />
         );
       case 'system-monitor':
@@ -616,6 +710,11 @@ export default function App() {
             onStartTracking={handleStartTracking}
             onStopTracking={handleStopTracking}
             onManualLog={handleManualLog}
+            sessions={sessions}
+            breaks={breaks}
+            claims={claims}
+            onSubmitClaim={handleSubmitClaim}
+            currentEmployeeId={currentEmployeeId}
           />
         );
       case 'employees':
@@ -634,6 +733,8 @@ export default function App() {
             employees={employees} 
             projects={projects} 
             onDeleteSession={handleDeleteSession}
+            currentEmployeeId={currentEmployeeId}
+            isAdmin={authenticatedUser?.isAdmin || false}
           />
         );
       case 'breaks-claims':
@@ -670,6 +771,8 @@ export default function App() {
       <AuthScreen 
         employees={employees}
         onRegisterEmployee={handleAddEmployee}
+        isDesktopAgentInstalled={isDesktopAgentInstalled}
+        onToggleDesktopAgent={handleToggleDesktopAgent}
         onLoginSuccess={(user) => {
           setAuthenticatedUser(user);
           // Auto-route on successful login
@@ -679,6 +782,17 @@ export default function App() {
           } else {
             setRoleMode('employee');
             setActiveTab('employee-dashboard');
+            
+            // If desktop agent is installed, trigger live workstation autostart immediately!
+            if (isDesktopAgentInstalled) {
+              setSystemBootState('booted');
+              handleStartTracking(
+                user.id,
+                'default',
+                'Software Development',
+                'Automated background session started via Desktop Workspace Agent'
+              );
+            }
           }
         }}
       />
@@ -687,6 +801,87 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-slate-900 font-sans antialiased" id="timechamp-applet-shell">
+      {/* Simulated Workstation Boot Sequence Overlay */}
+      <AnimatePresence>
+        {systemBootState === 'booting' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950 z-50 flex flex-col items-center justify-center p-6 text-white font-mono"
+            id="boot-overlay"
+          >
+            <div className="max-w-md w-full space-y-6">
+              {/* PC Screen Outline */}
+              <div className="border border-slate-800 bg-slate-900 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-2 left-3 flex space-x-1.5">
+                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                </div>
+                
+                <div className="text-center pt-4 pb-6 border-b border-slate-800 space-y-2">
+                  <Laptop className="w-12 h-12 text-[#ff981a] mx-auto animate-bounce" />
+                  <h3 className="text-sm font-black uppercase tracking-widest text-[#ff981a] mt-2">TimeChamp Workplace Daemon</h3>
+                  <p className="text-[10px] text-slate-500 font-bold">Virtual Workstation Boot Sequence...</p>
+                </div>
+
+                <div className="mt-6 space-y-4">
+                  {/* Progress bar */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[11px] font-bold text-slate-400">
+                      <span>Boot Progress</span>
+                      <span className="text-[#72bf24] font-mono">{bootProgress}%</span>
+                    </div>
+                    <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                      <motion.div
+                        className="h-full bg-gradient-to-r from-[#ff981a] via-[#00a3a4] to-[#72bf24] rounded-full"
+                        style={{ width: `${bootProgress}%` }}
+                        transition={{ ease: 'easeOut' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Terminal log output */}
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 min-h-[120px] flex flex-col justify-end text-xs">
+                    <p className="text-[#72bf24] flex items-center gap-1.5 font-bold mb-1">
+                      <span className="w-2 h-2 rounded-full bg-[#72bf24] animate-ping" />
+                      <span>{bootStep}</span>
+                    </p>
+                    <div className="text-[9px] text-slate-500 space-y-0.5 font-mono">
+                      <p>$ systemctl start timechamp-daemon.service</p>
+                      <p>$ state: syncing_telemetry_parameters...</p>
+                      <p>$ autostart_tracking: {isAutostartEnabled ? 'ENABLED' : 'DISABLED'}</p>
+                      <p className="text-indigo-400 font-bold">$ current_user: {employees.find(e => e.id === currentEmployeeId)?.name || 'Guest'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-between items-center text-[11px] text-slate-400 px-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isAutostartEnabled}
+                    onChange={(e) => setIsAutostartEnabled(e.target.checked)}
+                    className="rounded border-slate-800 bg-slate-900 text-[#ff981a] focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5"
+                  />
+                  <span>Autostart on boot</span>
+                </label>
+
+                <button
+                  onClick={() => setSystemBootState('booted')}
+                  className="text-slate-300 hover:text-white transition-colors cursor-pointer underline underline-offset-4"
+                >
+                  Skip sequence
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Desktop Sidebar / Mobile Nav Header */}
       <aside className="w-full md:w-64 bg-[#1d232a] text-slate-100 flex flex-col border-r border-slate-800 md:h-screen sticky top-0 z-40 dark" id="sidebar-container">
         
@@ -898,6 +1093,75 @@ export default function App() {
           )}
         </nav>
 
+        {/* Workstation Launcher Controller */}
+        <div className="p-4 border-t border-slate-800/80 bg-slate-950/30 text-xs space-y-3" id="workstation-controller">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Laptop className="w-3.5 h-3.5 text-[#ff981a]" />
+              <span className="font-bold text-slate-300">WORKSTATION</span>
+            </div>
+            {systemBootState === 'booted' ? (
+              <span className="text-[10px] text-[#72bf24] font-bold bg-[#72bf24]/10 border border-[#72bf24]/20 px-1.5 py-0.5 rounded-sm">
+                ONLINE
+              </span>
+            ) : systemBootState === 'booting' ? (
+              <span className="text-[10px] text-amber-500 font-bold bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-sm animate-pulse">
+                BOOTING
+              </span>
+            ) : (
+              <span className="text-[10px] text-red-500 font-bold bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded-sm">
+                OFFLINE
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                if (systemBootState === 'booted') {
+                  if (activeSession) {
+                    handleStopTracking(85);
+                  }
+                  setSystemBootState('idle');
+                } else {
+                  setSystemBootState('booting');
+                }
+              }}
+              className={`py-1.5 px-2 rounded-lg font-bold flex items-center justify-center gap-1.5 cursor-pointer text-[10px] transition-all border ${
+                systemBootState === 'booted'
+                  ? 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20'
+                  : 'bg-[#72bf24]/15 border-[#72bf24]/30 text-[#72bf24] hover:bg-[#72bf24]/25'
+              }`}
+            >
+              <Power className="w-3 h-3" />
+              <span>{systemBootState === 'booted' ? 'Power Off' : 'Power On'}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (activeSession) {
+                  handleStopTracking(85);
+                }
+                setSystemBootState('booting');
+              }}
+              className="py-1.5 px-2 rounded-lg font-bold flex items-center justify-center gap-1.5 cursor-pointer text-[10px] text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700/60 transition-all"
+            >
+              <RotateCcw className="w-3 h-3 text-[#ff981a]" />
+              <span>Reboot</span>
+            </button>
+          </div>
+
+          <label className="flex items-center gap-2 text-[10px] text-slate-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isAutostartEnabled}
+              onChange={(e) => setIsAutostartEnabled(e.target.checked)}
+              className="rounded border-slate-700 bg-slate-800 text-[#ff981a] focus:ring-0 focus:ring-offset-0 w-3 h-3"
+            />
+            <span>Autostart tracker on boot</span>
+          </label>
+        </div>
+
         {/* Workspace info & system clock */}
         <div className="p-6 border-t border-slate-800 bg-slate-950/20 text-xs text-slate-500 font-mono space-y-2" id="system-readout">
           <p className="flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
@@ -931,15 +1195,17 @@ export default function App() {
 
           <div className="flex flex-wrap gap-3 items-center">
             {/* Daily Summary Report from image 1 */}
-            <button
-              onClick={() => setDailySummaryOpen(true)}
-              className="flex items-center gap-1.5 text-xs bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 px-3 py-1.5 rounded-xl text-indigo-700 font-bold transition-all cursor-pointer"
-              title="Open the Daily Summary Report from July 6"
-              id="header-summary-report-btn"
-            >
-              <FileText className="w-4 h-4 text-indigo-600" />
-              <span>Jul 6 Summary Report</span>
-            </button>
+            {authenticatedUser?.isAdmin && (
+              <button
+                onClick={() => setDailySummaryOpen(true)}
+                className="flex items-center gap-1.5 text-xs bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 px-3 py-1.5 rounded-xl text-indigo-700 font-bold transition-all cursor-pointer"
+                title="Open the Daily Summary Report from July 6"
+                id="header-summary-report-btn"
+              >
+                <FileText className="w-4 h-4 text-indigo-600" />
+                <span>Jul 6 Summary Report</span>
+              </button>
+            )}
 
             {currentEmployeeId && (
               <button

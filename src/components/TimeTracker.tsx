@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Employee, Project, TaskSession } from '../types';
+import { Employee, Project, TaskSession, BreakLog, TimeClaim } from '../types';
 import { 
   Play, 
   Pause, 
@@ -15,7 +15,12 @@ import {
   Download, 
   Info,
   ShieldAlert,
-  Sparkles
+  Sparkles,
+  AlertCircle,
+  CheckCircle,
+  XCircle,
+  X,
+  Coffee
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -26,6 +31,11 @@ interface TimeTrackerProps {
   onStartTracking: (employeeId: string, projectId: string, taskName: string, description: string) => void;
   onStopTracking: (productivityScore: number) => void;
   onManualLog: (session: Omit<TaskSession, 'id'>) => void;
+  sessions?: TaskSession[];
+  breaks?: BreakLog[];
+  claims?: TimeClaim[];
+  onSubmitClaim?: (projectId: string, taskName: string, date: string, hours: number, reason: string) => void;
+  currentEmployeeId?: string | null;
 }
 
 export default function TimeTracker({
@@ -35,11 +45,27 @@ export default function TimeTracker({
   onStartTracking,
   onStopTracking,
   onManualLog,
+  sessions = [],
+  breaks = [],
+  claims = [],
+  onSubmitClaim,
+  currentEmployeeId,
 }: TimeTrackerProps) {
   // Image 2 Subtabs: Overview, Attendance, Time Claim
   const [trackerSubTab, setTrackerSubTab] = useState<'overview' | 'attendance' | 'time-claim'>('attendance');
-  const [selectedDate, setSelectedDate] = useState('2026-07-07');
+  const [selectedDate, setSelectedDate] = useState('2026-07-08');
   const [selectedTimezone, setSelectedTimezone] = useState('IST');
+
+  // Click-to-claim interactive states for offline intervals
+  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [modalStart, setModalStart] = useState('17:30');
+  const [modalEnd, setModalEnd] = useState('18:45');
+  const [modalSpentStr, setModalSpentStr] = useState('01:15');
+  const [modalHours, setModalHours] = useState(1.25);
+  const [modalProjId, setModalProjId] = useState(projects[0]?.id || 'default');
+  const [modalTaskName, setModalTaskName] = useState('Software Engineering');
+  const [modalReason, setModalReason] = useState('');
+  const [modalSuccessMsg, setModalSuccessMsg] = useState('');
 
   // Real-time Timer states (for the active stopwatch in Overview)
   const [selectedEmpId, setSelectedEmpId] = useState(employees[0]?.id || '');
@@ -148,6 +174,44 @@ export default function TimeTracker({
     setDescription('');
   };
 
+  const handleOpenClaimModal = (start: string, end: string, spentStr: string, hrs: number) => {
+    const alreadyClaimed = claims.some(c => 
+      c.employeeId === (currentEmployeeId || 'AR29061') && 
+      c.date === selectedDate &&
+      Math.abs(c.hours - hrs) < 0.05
+    );
+    if (alreadyClaimed) {
+      alert(`A timesheet claim for ${hrs}h has already been submitted for this offline interval.`);
+      return;
+    }
+    setModalStart(start);
+    setModalEnd(end);
+    setModalSpentStr(spentStr);
+    setModalHours(hrs);
+    setModalReason('');
+    setModalSuccessMsg('');
+    setShowClaimModal(true);
+  };
+
+  const handleModalSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalReason.trim()) {
+      alert("Please provide a business justification reason.");
+      return;
+    }
+    if (onSubmitClaim) {
+      onSubmitClaim('default', 'Software Development', selectedDate, modalHours, modalReason.trim());
+      setModalSuccessMsg("✓ Offline hour claim submitted successfully!");
+      setTimeout(() => {
+        setShowClaimModal(false);
+        setModalSuccessMsg('');
+      }, 1500);
+    } else {
+      alert("Claim submitted successfully!");
+      setShowClaimModal(false);
+    }
+  };
+
   const handleManualClaimSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const proj = projects.find(p => p.id === manualProjId) || { id: 'default', name: 'General' };
@@ -249,131 +313,272 @@ export default function TimeTracker({
       <AnimatePresence mode="wait">
         
         {/* TAB 1: ATTENDANCE (IMAGE 2 LAYOUT) */}
-        {trackerSubTab === 'attendance' && (
-          <motion.div
-            key="attendance"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="space-y-6"
-          >
-            {/* FOUR CORE ATTENDANCE CARDS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              
-              {/* Working Hours Card */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs text-center">
-                <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Total working hours</p>
-                <p className="text-3xl font-black text-[#00a3a4] font-mono mt-1.5">02:09</p>
-              </div>
+        {trackerSubTab === 'attendance' && (() => {
+          // Find matching claim for our specific offline row (17:30 - 18:45, date: selectedDate)
+          const offlineClaim = claims.find(c => 
+            c.employeeId === (currentEmployeeId || 'AR29061') && 
+            c.date === selectedDate &&
+            Math.abs(c.hours - 1.25) < 0.05
+          );
 
-              {/* Total Hours Card */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs text-center">
-                <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Total hours</p>
-                <p className="text-3xl font-black text-[#4ea1ff] font-mono mt-1.5">02:09</p>
-              </div>
+          // Calculate dynamic working hours based on claim status
+          let workingHoursText = "03:09";
+          let totalHoursText = "03:09";
+          let awayHoursText = "01:15";
 
-              {/* Idle Hours Card */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs text-center">
-                <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Idle hours</p>
-                <p className="text-3xl font-black text-[#ffb800] font-mono mt-1.5">00:00</p>
-              </div>
+          if (offlineClaim) {
+            if (offlineClaim.status === 'Approved') {
+              workingHoursText = "04:24"; // 03:09 + 01:15
+              totalHoursText = "04:24";
+              awayHoursText = "00:00";
+            } else {
+              // Pending: keeps working hours at 03:09 but can adjust totals or away if needed
+              workingHoursText = "03:09";
+              totalHoursText = "03:09";
+              awayHoursText = "01:15";
+            }
+          }
 
-              {/* Away Hours Card */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs text-center">
-                <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Away hours</p>
-                <p className="text-3xl font-black text-[#ff6a6a] font-mono mt-1.5">00:00</p>
-              </div>
-
-            </div>
-
-            {/* HORIZONTAL TIMELINE PROGRESS SEGMENT GRAPH */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-              <div className="flex justify-between items-center">
-                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Daily Activity Timeline Map</h4>
-                <span className="text-[10px] font-bold text-slate-400">Date: {selectedDate}</span>
-              </div>
-
-              <div className="space-y-3 pt-2">
-                {/* Visual Segments Bar */}
-                <div className="w-full bg-slate-100 h-11 rounded-xl border border-slate-200 overflow-hidden flex shadow-xs">
-                  {/* Offline segment: 17:30 to 19:16 (53% of total viewport hours) */}
-                  <div className="h-full bg-slate-200/60 relative group cursor-help transition-all hover:bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500" style={{ width: '45%' }}>
-                    <span>Offline (01:46)</span>
-                  </div>
-                  {/* Working active segment: 19:16 to 21:26 (47% of total hours) */}
-                  <div className="h-full bg-[#72bf24] relative group cursor-help transition-all hover:opacity-90 flex items-center justify-center text-[10px] font-black text-white" style={{ width: '55%' }}>
-                    <span>Working (02:09)</span>
-                  </div>
+          return (
+            <motion.div
+              key="attendance"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              {/* FOUR CORE ATTENDANCE CARDS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                {/* Working Hours Card */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs text-center relative overflow-hidden group">
+                  <div className="absolute top-0 inset-x-0 h-[3px] bg-[#00a3a4]" />
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Total working hours</p>
+                  <p className="text-3xl font-black text-[#00a3a4] font-mono mt-1.5">{workingHoursText}</p>
+                  {offlineClaim && offlineClaim.status === 'Approved' && (
+                    <span className="text-[9px] bg-green-50 text-[#72bf24] px-1.5 py-0.5 rounded-full font-bold inline-block mt-1">
+                      +01:15 Claimed Approved
+                    </span>
+                  )}
                 </div>
 
-                {/* Timeline hour labels beneath the bar */}
-                <div className="flex justify-between text-[11px] text-slate-400 font-mono font-bold px-1.5">
-                  <span>19:16</span>
-                  <span>20:16</span>
-                  <span>21:16</span>
-                  <span>22:16</span>
+                {/* Total Hours Card */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs text-center relative overflow-hidden">
+                  <div className="absolute top-0 inset-x-0 h-[3px] bg-[#4ea1ff]" />
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Total hours</p>
+                  <p className="text-3xl font-black text-[#4ea1ff] font-mono mt-1.5">{totalHoursText}</p>
+                </div>
+
+                {/* Idle Hours Card */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs text-center relative overflow-hidden">
+                  <div className="absolute top-0 inset-x-0 h-[3px] bg-[#ffb800]" />
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Idle hours</p>
+                  <p className="text-3xl font-black text-[#ffb800] font-mono mt-1.5">00:00</p>
+                </div>
+
+                {/* Away Hours Card */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs text-center relative overflow-hidden">
+                  <div className="absolute top-0 inset-x-0 h-[3px] bg-[#ff6a6a]" />
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Away hours</p>
+                  <p className="text-3xl font-black text-[#ff6a6a] font-mono mt-1.5">{awayHoursText}</p>
+                  {offlineClaim && offlineClaim.status === 'Approved' && (
+                    <span className="text-[9px] text-slate-400 font-medium inline-block mt-1 line-through">
+                      01:15 Away
+                    </span>
+                  )}
+                </div>
+
+              </div>
+
+              {/* HORIZONTAL TIMELINE PROGRESS SEGMENT GRAPH */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
+                    <span>Daily Activity Timeline Map</span>
+                  </h4>
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg">Selected Date: {selectedDate}</span>
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  {/* Visual Segments Bar */}
+                  <div className="w-full bg-slate-100 h-11 rounded-xl border border-slate-200 overflow-hidden flex shadow-xs">
+                    {/* Segment 1: 17:30 to 18:45 (Offline / Claimed) */}
+                    {offlineClaim ? (
+                      <div 
+                        className={`h-full relative group transition-all flex flex-col items-center justify-center text-[10px] p-1 text-center font-bold border-r border-slate-200 ${
+                          offlineClaim.status === 'Approved' ? 'bg-[#72bf24]/90 text-white' :
+                          offlineClaim.status === 'Rejected' ? 'bg-red-500 text-white' :
+                          'bg-indigo-500 text-white animate-pulse'
+                        }`}
+                        style={{ width: '28.4%' }}
+                      >
+                        <span className="font-extrabold truncate w-full flex items-center justify-center gap-1">
+                          {offlineClaim.status === 'Approved' ? <CheckCircle className="w-3 h-3 text-white" /> :
+                           offlineClaim.status === 'Rejected' ? <XCircle className="w-3 h-3 text-white" /> :
+                           <Clock className="w-3 h-3 text-white animate-spin" />}
+                          Claimed ({offlineClaim.status})
+                        </span>
+                        <span className="text-[9px] opacity-90 truncate w-full">01:15 • {offlineClaim.taskName}</span>
+                      </div>
+                    ) : (
+                      <div 
+                        onClick={() => handleOpenClaimModal('17:30', '18:45', '01:15', 1.25)}
+                        className="h-full bg-slate-200/80 hover:bg-slate-300 relative group cursor-pointer transition-all flex flex-col items-center justify-center text-[10px] text-slate-500 border-r border-slate-300 shadow-inner"
+                        style={{ width: '28.4%' }}
+                        title="Offline Block - Click to Claim!"
+                      >
+                        <span className="font-extrabold flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5 text-[#ff981a] animate-bounce shrink-0" /> 
+                          Offline (01:15)
+                        </span>
+                        <span className="text-[8px] text-slate-400 font-medium">Click to fill details & claim</span>
+                      </div>
+                    )}
+
+                    {/* Segment 2: 18:45 to 21:55 (Working) */}
+                    <div 
+                      className="h-full bg-[#72bf24] relative group hover:opacity-95 transition-all flex flex-col items-center justify-center text-[10px] font-black text-white" 
+                      style={{ width: '71.6%' }}
+                      title="Active Working Session (Tracked automatically by Around29 Desktop Agent)"
+                    >
+                      <span>Working (03:09)</span>
+                      <span className="text-[8px] opacity-90 font-medium">18:45 - 21:55 • Automated</span>
+                    </div>
+                  </div>
+
+                  {/* Timeline hour labels beneath the bar */}
+                  <div className="flex justify-between text-[11px] text-slate-400 font-mono font-bold px-1.5">
+                    <span>17:30</span>
+                    <span>18:45</span>
+                    <span>20:15</span>
+                    <span>21:55</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* CHRONOLOGICAL ATTENDANCE GRID TABLE */}
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-              <div className="px-6 py-4 bg-slate-50 border-b border-slate-100">
-                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Audit logs & status classifications</h4>
+              {/* CHRONOLOGICAL ATTENDANCE GRID TABLE */}
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center flex-wrap gap-2">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Audit logs & status classifications</h4>
+                  {!offlineClaim && (
+                    <span className="text-[10px] bg-indigo-50 border border-indigo-100 text-indigo-700 px-2.5 py-1 rounded-lg font-bold animate-pulse">
+                      ★ Click the Offline row to claim hours
+                    </span>
+                  )}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50/50 text-slate-400 font-extrabold uppercase text-[10px] border-b border-slate-100">
+                        <th className="p-4">Start time</th>
+                        <th className="p-4">End time</th>
+                        <th className="p-4">Spent Time</th>
+                        <th className="p-4">User Activity Status</th>
+                        <th className="p-4">Working Status</th>
+                        <th className="p-4">Reason</th>
+                        <th className="p-4">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                      
+                      {/* Row 1 - Offline / Claimed */}
+                      {offlineClaim ? (
+                        <tr className={`transition-all duration-200 ${
+                          offlineClaim.status === 'Approved' ? 'bg-green-50/10 border-l-4 border-green-500' :
+                          offlineClaim.status === 'Rejected' ? 'bg-red-50/15 border-l-4 border-red-500' :
+                          'bg-indigo-50/10 border-l-4 border-indigo-500'
+                        }`}>
+                          <td className="p-4 font-mono font-bold">17:30</td>
+                          <td className="p-4 font-mono font-bold">18:45</td>
+                          <td className="p-4 font-mono font-bold text-indigo-600">01:15</td>
+                          <td className="p-4">
+                            <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
+                              offlineClaim.status === 'Approved' ? 'bg-green-50 text-[#72bf24] border-green-100' :
+                              offlineClaim.status === 'Rejected' ? 'bg-red-50 text-red-600 border-red-100' :
+                              'bg-indigo-50 text-indigo-700 border-indigo-100'
+                            }`}>
+                              Claimed Offline
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold">
+                            {offlineClaim.status === 'Approved' ? (
+                              <span className="text-[#72bf24]">Working (Claimed)</span>
+                            ) : offlineClaim.status === 'Rejected' ? (
+                              <span className="text-red-500">Rejected Claim</span>
+                            ) : (
+                              <span className="text-indigo-600">Pending Approval</span>
+                            )}
+                          </td>
+                          <td className="p-4 text-slate-700">
+                            <div className="flex flex-col">
+                              <span className="font-extrabold text-slate-800 text-xs">{offlineClaim.projectName} &rsaquo; {offlineClaim.taskName}</span>
+                              <span className="text-slate-500 italic mt-0.5">"{offlineClaim.reason}"</span>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 w-max ${
+                              offlineClaim.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                              offlineClaim.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {offlineClaim.status === 'Approved' && <CheckCircle className="w-3.5 h-3.5" />}
+                              {offlineClaim.status === 'Rejected' && <XCircle className="w-3.5 h-3.5" />}
+                              {offlineClaim.status === 'Pending' && <Clock className="w-3.5 h-3.5 animate-spin" />}
+                              {offlineClaim.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr 
+                          onClick={() => handleOpenClaimModal('17:30', '18:45', '01:15', 1.25)}
+                          className="hover:bg-indigo-50/20 cursor-pointer transition-all group duration-150 border-l-4 border-transparent hover:border-indigo-400"
+                        >
+                          <td className="p-4 font-mono font-bold text-slate-800">17:30</td>
+                          <td className="p-4 font-mono font-bold text-slate-800">18:45</td>
+                          <td className="p-4 font-mono text-[#ff6a6a] font-bold">01:15</td>
+                          <td className="p-4">
+                            <span className="bg-slate-100 text-slate-500 text-[10px] px-2.5 py-0.5 rounded-full font-bold border border-slate-200">
+                              Offline
+                            </span>
+                          </td>
+                          <td className="p-4 text-slate-400 font-bold flex items-center gap-1">
+                            Non-Working
+                          </td>
+                          <td className="p-4">
+                            <div className="text-indigo-600 font-bold text-xs group-hover:underline flex items-center gap-1 bg-indigo-50/30 rounded px-2.5 py-1.5 border border-indigo-100/50 w-max max-w-sm">
+                              <AlertCircle className="w-3.5 h-3.5 text-indigo-500 animate-pulse shrink-0" />
+                              <span>Click to claim this block as work hours</span>
+                            </div>
+                          </td>
+                          <td className="p-4 font-bold text-slate-400 group-hover:text-indigo-600">Original</td>
+                        </tr>
+                      )}
+
+                      {/* Row 2 - Working */}
+                      <tr className="bg-green-50/10 hover:bg-green-50/25 transition-colors border-l-4 border-transparent">
+                        <td className="p-4 font-mono font-bold text-slate-800">18:45</td>
+                        <td className="p-4 font-mono font-bold text-slate-800">21:55</td>
+                        <td className="p-4 font-mono text-[#72bf24] font-black">03:09</td>
+                        <td className="p-4">
+                          <span className="bg-green-50 text-[#72bf24] text-[10px] px-2.5 py-0.5 rounded-full font-black border border-green-100">
+                            Working
+                          </span>
+                        </td>
+                        <td className="p-4 text-[#72bf24] font-extrabold">Working</td>
+                        <td className="p-4 text-slate-400 italic">Tracked automatically by Around29 Desktop Agent</td>
+                        <td className="p-4 font-bold text-[#00a3a4]">Original</td>
+                      </tr>
+
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-50/50 text-slate-400 font-extrabold uppercase text-[10px] border-b border-slate-100">
-                      <th className="p-4">Start time</th>
-                      <th className="p-4">End time</th>
-                      <th className="p-4">Spent Time</th>
-                      <th className="p-4">User Activity Status</th>
-                      <th className="p-4">Working Status</th>
-                      <th className="p-4">Reason</th>
-                      <th className="p-4">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                    
-                    {/* Row 1 - Offline */}
-                    <tr className="hover:bg-slate-50/50 transition-colors">
-                      <td className="p-4 font-mono font-bold">17:30</td>
-                      <td className="p-4 font-mono font-bold">19:16</td>
-                      <td className="p-4 font-mono text-[#ff6a6a]">01:46</td>
-                      <td className="p-4">
-                        <span className="bg-slate-100 text-slate-500 text-[10px] px-2.5 py-0.5 rounded-full font-bold border border-slate-200">
-                          Offline
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-400 font-bold">Non-Working</td>
-                      <td className="p-4 text-slate-400 italic">No device sync logged</td>
-                      <td className="p-4 font-bold text-[#00a3a4]">Original</td>
-                    </tr>
-
-                    {/* Row 2 - Working */}
-                    <tr className="bg-green-50/20 hover:bg-green-50/40 transition-colors">
-                      <td className="p-4 font-mono font-bold text-slate-800">19:16</td>
-                      <td className="p-4 font-mono font-bold text-slate-800">21:26</td>
-                      <td className="p-4 font-mono text-[#72bf24] font-black">02:09</td>
-                      <td className="p-4">
-                        <span className="bg-green-50 text-[#72bf24] text-[10px] px-2.5 py-0.5 rounded-full font-black border border-green-100">
-                          Working
-                        </span>
-                      </td>
-                      <td className="p-4 text-[#72bf24] font-extrabold">Working</td>
-                      <td className="p-4 text-slate-400">—</td>
-                      <td className="p-4 font-bold text-[#00a3a4]">Original</td>
-                    </tr>
-
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-          </motion.div>
-        )}
+            </motion.div>
+          );
+        })()}
 
         {/* TAB 2: OVERVIEW (REALTIME STOPWATCH & ACTIVE PROCESS WINDOWS) */}
         {trackerSubTab === 'overview' && (
@@ -393,7 +598,22 @@ export default function TimeTracker({
               </div>
 
               {!activeSession ? (
-                <form onSubmit={handleStart} className="space-y-4 mt-6">
+                <div className="space-y-4 mt-6">
+                  {/* System Autostart Info Card */}
+                  <div className="bg-green-50/70 border border-green-100 rounded-xl p-4 text-xs space-y-2">
+                    <div className="flex items-center gap-2 text-[#72bf24] font-extrabold">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#72bf24] opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-[#72bf24]"></span>
+                      </span>
+                      <span>SYSTEM POWER-ON AUTOSTART: ACTIVE</span>
+                    </div>
+                    <p className="text-slate-500 leading-relaxed">
+                      Your TimeChamp desktop client is configured to automatically launch and start live tracking immediately upon workstation boot. Use the <strong className="text-slate-700">WORKSTATION</strong> controller in the sidebar to simulate restarts or power state changes.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleStart} className="space-y-4">
                   <div className="grid grid-cols-1 gap-4">
                     <div>
                       <label className="text-[10px] font-black uppercase text-slate-400">Task Activity / Category</label>
@@ -432,6 +652,7 @@ export default function TimeTracker({
                     <span>Launch Around29 Time Audit</span>
                   </button>
                 </form>
+                </div>
               ) : (
                 <div className="space-y-6 mt-6">
                   <div className="bg-slate-50 border rounded-xl p-6 text-center space-y-4">
@@ -526,23 +747,6 @@ export default function TimeTracker({
 
             <form onSubmit={handleManualClaimSubmit} className="space-y-4 mt-6">
               
-              <div>
-                <label className="text-[10px] font-black uppercase text-slate-400">Activity / Task Category</label>
-                <select
-                  value={manualTask}
-                  onChange={(e) => setManualTask(e.target.value)}
-                  className="w-full text-xs border rounded-xl p-3 bg-white focus:ring-1 focus:ring-indigo-500 mt-1 outline-hidden font-semibold"
-                >
-                  <option value="Software Engineering">Software Engineering</option>
-                  <option value="System Administration">System Administration</option>
-                  <option value="Database Optimization">Database Optimization</option>
-                  <option value="Technical Consulting">Technical Consulting</option>
-                  <option value="Customer Support">Customer Support</option>
-                  <option value="Team Standup / Sync">Team Standup / Sync</option>
-                  <option value="Research & Planning">Research & Planning</option>
-                </select>
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black uppercase text-slate-400">Date</label>
@@ -632,6 +836,106 @@ export default function TimeTracker({
           </motion.div>
         )}
 
+      </AnimatePresence>
+
+      {/* Click-to-Claim Interactive Modal Overlay */}
+      <AnimatePresence>
+        {showClaimModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden w-full max-w-lg"
+              id="click-to-claim-modal"
+            >
+              <div className="bg-slate-900 text-white p-5 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <FileEdit className="w-5 h-5 text-[#ff981a]" />
+                  <div>
+                    <h3 className="text-sm font-black font-display text-white">Claim Break / Offline Time</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Convert offline or break intervals into productive hours</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowClaimModal(false)}
+                  className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1 rounded-lg hover:bg-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleModalSubmit} className="p-6 space-y-4">
+                
+                {/* Time slot summary */}
+                <div className="bg-slate-50 border border-slate-150 rounded-xl p-3.5 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block mb-0.5">Start Time</span>
+                    <span className="font-mono font-black text-slate-700">{modalStart}</span>
+                  </div>
+                  <div className="border-x border-slate-200">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block mb-0.5">End Time</span>
+                    <span className="font-mono font-black text-slate-700">{modalEnd}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block mb-0.5">Total Claimed</span>
+                    <span className="font-mono font-black text-indigo-600 bg-indigo-50 border border-indigo-100/30 px-1.5 py-0.5 rounded">
+                      {modalSpentStr} ({modalHours}h)
+                    </span>
+                  </div>
+                </div>
+
+                {modalSuccessMsg && (
+                  <div className="p-3.5 bg-green-50 border border-green-200 text-green-800 rounded-xl text-xs font-bold flex items-center gap-2 animate-bounce">
+                    <CheckCircle className="w-4 h-4 text-[#72bf24] shrink-0" />
+                    <span>{modalSuccessMsg}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Target Project</label>
+                  <p className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-150 rounded-xl p-3.5">
+                    Around29 Workspace (Default Project)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Business Justification Reason</label>
+                  <textarea
+                    value={modalReason}
+                    onChange={(e) => setModalReason(e.target.value)}
+                    placeholder="e.g. Worked offline to assemble database configuration layers or participated in off-site client deployment audit..."
+                    rows={3}
+                    className="w-full text-xs border rounded-xl p-3 outline-hidden focus:ring-1 focus:ring-[#ff981a]"
+                    required
+                  />
+                  <p className="text-[9px] text-slate-400 italic mt-1">
+                    Management verifies all offline claim notes prior to final accounting and invoicing.
+                  </p>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-3 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setShowClaimModal(false)}
+                    className="px-4 py-2 text-xs font-semibold border border-slate-200 text-slate-500 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 text-xs font-black bg-[#ff981a] hover:bg-[#e08110] text-white rounded-xl transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span>Submit Timesheet Claim</span>
+                  </button>
+                </div>
+
+              </form>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
     </div>

@@ -32,6 +32,7 @@ export default function EmployeeRoster({
   const [hourlyRate, setHourlyRate] = useState('80');
   const [productivityScore, setProductivityScore] = useState(85);
   const [status, setStatus] = useState<EmployeeStatus>('Active');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Avatar selector states for new employee
   const [avatarSourceType, setAvatarSourceType] = useState<'preset' | 'upload' | 'url'>('preset');
@@ -117,6 +118,7 @@ export default function EmployeeRoster({
       productivityScore: productivityScore,
       status: status,
       avatar: avatarUrl,
+      isAdmin,
     });
 
     // Reset Form
@@ -126,6 +128,7 @@ export default function EmployeeRoster({
     setHourlyRate('80');
     setProductivityScore(85);
     setStatus('Active');
+    setIsAdmin(false);
     setCustomAvatarUrl('');
     setUploadedBase64('');
     setShowAddForm(false);
@@ -223,7 +226,7 @@ export default function EmployeeRoster({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
                     Productivity Score ({productivityScore}%)
@@ -251,6 +254,20 @@ export default function EmployeeRoster({
                     <option value="Break">Break</option>
                     <option value="Meeting">Meeting</option>
                   </select>
+                </div>
+                <div className="flex flex-col justify-end pb-1.5">
+                  <label className="flex items-center gap-2 cursor-pointer select-none py-2 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl h-[38px] transition-all">
+                    <input
+                      type="checkbox"
+                      checked={isAdmin}
+                      onChange={(e) => setIsAdmin(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-0 focus:ring-offset-0 w-4 h-4 cursor-pointer"
+                    />
+                    <div className="text-left">
+                      <p className="text-xs font-bold text-slate-700 leading-none">Is Administrator</p>
+                      <p className="text-[8px] text-slate-400 font-medium">Full system permissions</p>
+                    </div>
+                  </label>
                 </div>
               </div>
 
@@ -461,8 +478,13 @@ export default function EmployeeRoster({
                 </div>
 
                 <div>
-                  <h4 className="text-base font-bold text-slate-800 font-display flex items-center gap-2">
+                  <h4 className="text-base font-bold text-slate-800 font-display flex items-center gap-1.5">
                     {emp.name}
+                    {emp.isAdmin && (
+                      <span className="bg-rose-50 text-rose-700 border border-rose-200/50 text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider scale-90">
+                        Admin
+                      </span>
+                    )}
                   </h4>
                   <p className="text-xs text-slate-500 font-medium flex items-center gap-1">
                     <Briefcase className="w-3 h-3 text-slate-400" /> {emp.role}
@@ -782,6 +804,20 @@ export default function EmployeeRoster({
                       </div>
                     </div>
                   )}
+
+                  <div className="pt-2 border-t border-indigo-100 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold text-slate-500">System Role Privileges</span>
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={emp.isAdmin || false}
+                        onChange={(e) => onUpdateEmployee(emp.id, { isAdmin: e.target.checked })}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                        id={`sandbox-admin-toggle-${emp.id}`}
+                      />
+                      <span className="text-[10px] font-bold text-slate-700">Administrator Access</span>
+                    </label>
+                  </div>
 
                   <div className="text-[9px] text-indigo-500 italic flex items-center gap-1 font-mono pt-1">
                     <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Changes apply to real-time analytics instantly.

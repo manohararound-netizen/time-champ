@@ -16,9 +16,17 @@ export interface Employee {
   isAdmin?: boolean;
 }
 
-export type TimeClaimStatus = 'Pending' | 'Approved' | 'Rejected';
+export interface Project {
+  id: string;
+  name: string;
+  clientName: string;
+  budgetHours: number;
+  spentHours: number;
+  color: string; // Tailwind color class string (e.g., 'emerald', 'sky')
+  tasks: string[];
+}
 
-export interface TimeClaim {
+export interface TaskSession {
   id: string;
   employeeId: string;
   employeeName: string;
@@ -75,4 +83,5 @@ export interface ProjectHoursDataPoint {
   hours: number;
   budget: number;
 }
+
 

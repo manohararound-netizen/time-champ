@@ -51,6 +51,8 @@ interface DashboardProps {
   onLogin?: (id: string) => void;
   onLogout?: () => void;
   onAddClaim?: (projectId: string, taskName: string, date: string, hours: number, reason: string) => void;
+  onApproveClaim?: (claimId: string) => void;
+  onRejectClaim?: (claimId: string, reason: string) => void;
 }
 
 export default function Dashboard({ 
@@ -62,13 +64,20 @@ export default function Dashboard({
   currentEmployeeId = null,
   onLogin,
   onLogout,
-  onAddClaim 
+  onAddClaim,
+  onApproveClaim,
+  onRejectClaim
 }: DashboardProps) {
   // Navigation & Tabs
-  const [subTab, setSubTab] = useState<'overview' | 'attendance' | 'time-claim'>('overview');
+  const [subTab, setSubTab] = useState<'overview' | 'attendance' | 'time-claim' | 'reports'>('overview');
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'date-range'>('day');
   const [timezone, setTimezone] = useState<string>('IST');
   const [showTimezoneDropdown, setShowTimezoneDropdown] = useState(false);
+  
+  // Reports Center State
+  const [reportMonth, setReportMonth] = useState('2026-07');
+  const [reportEmployeeId, setReportEmployeeId] = useState('all');
+  const [claimReportStatus, setClaimReportStatus] = useState<'all' | 'Approved' | 'Pending' | 'Rejected'>('all');
   
   // Date State (based on screenshot date: "07 Jul 2026")
   const [currentDate, setCurrentDate] = useState<Date>(new Date('2026-07-07'));
@@ -98,6 +107,10 @@ export default function Dashboard({
   const [claimHours, setClaimHours] = useState('2');
   const [claimReason, setClaimReason] = useState('');
   const [claimSuccessMessage, setClaimSuccessMessage] = useState('');
+
+  // Dashboard-direct Claims Approval states
+  const [rejectingDashboardClaimId, setRejectingDashboardClaimId] = useState<string | null>(null);
+  const [dashboardRejectionReason, setDashboardRejectionReason] = useState<string>('');
 
   // Format Helper for Date Selector
   const formatDateString = (date: Date) => {
@@ -187,6 +200,92 @@ export default function Dashboard({
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
     link.setAttribute("download", `TimeChamp_Working_Hours_${currentDate.toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Download Monthly Report for Admins
+  const downloadMonthlyReport = () => {
+    // Columns: Employee ID, Name, Role, Month, Tracked Sessions, Total Hours, Avg Productivity Score
+    const csvRows = [
+      ['Employee ID', 'Employee Name', 'Role', 'Report Month', 'Tracked Sessions Count', 'Total Hours Tracked', 'Average Productivity Score (%)']
+    ];
+
+    employees.forEach(emp => {
+      // If a specific employee is selected, skip others
+      if (reportEmployeeId !== 'all' && emp.id !== reportEmployeeId) return;
+
+      // Filter sessions for this employee in the selected month (starts with reportMonth)
+      const empSessions = sessions.filter(s => 
+        s.employeeId === emp.id && 
+        s.startTime.startsWith(reportMonth)
+      );
+
+      const totalSeconds = empSessions.reduce((sum, s) => sum + s.durationSeconds, 0);
+      const totalHours = (totalSeconds / 3600).toFixed(2);
+      
+      const totalProductivity = empSessions.reduce((sum, s) => sum + s.productivityScore, 0);
+      const avgProductivity = empSessions.length > 0 
+        ? Math.round(totalProductivity / empSessions.length) 
+        : emp.productivityScore;
+
+      csvRows.push([
+        emp.id,
+        emp.name,
+        emp.role,
+        reportMonth,
+        String(empSessions.length),
+        totalHours,
+        `${avgProductivity}%`
+      ]);
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + csvRows.map(e => e.map(val => `"${val}"`).join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `TimeChamp_Monthly_Hours_Report_${reportMonth}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Download Time Claims Report for Admins
+  const downloadTimeClaimsReport = () => {
+    // Columns: Claim ID, Employee Name, Project, Date, Hours Claimed, Status, Reason, Rejection Note
+    const csvRows = [
+      ['Claim ID', 'Employee Name', 'Project', 'Task Name', 'Claim Date', 'Claimed Hours', 'Status', 'Detailed Reason', 'Rejection Note']
+    ];
+
+    claims.forEach(cl => {
+      // Filter by status if not 'all'
+      if (claimReportStatus !== 'all' && cl.status !== claimReportStatus) return;
+
+      // Filter by specific employee if selected
+      const emp = employees.find(e => e.name === cl.employeeName);
+      if (reportEmployeeId !== 'all' && emp && emp.id !== reportEmployeeId) return;
+
+      csvRows.push([
+        cl.id,
+        cl.employeeName,
+        cl.projectName,
+        cl.taskName,
+        cl.date,
+        String(cl.hours),
+        cl.status,
+        (cl.reason || '').replace(/"/g, '""'),
+        (cl.rejectionReason || '').replace(/"/g, '""')
+      ]);
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + csvRows.map(e => e.map(val => `"${val}"`).join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `TimeChamp_Time_Claims_Report_${claimReportStatus}_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -304,6 +403,19 @@ export default function Dashboard({
           >
             <FileText className="w-3.5 h-3.5" />
             <span>Time Claim</span>
+          </button>
+
+          <button
+            onClick={() => setSubTab('reports')}
+            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              subTab === 'reports'
+                ? 'bg-white text-teal-700 shadow-xs border border-slate-200/20'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+            id="subtab-reports-center"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Reports Center</span>
           </button>
         </div>
 
@@ -770,45 +882,257 @@ export default function Dashboard({
               {claims.length > 0 ? (
                 <div className="space-y-2.5">
                   {claims.map((cl) => (
-                    <div key={cl.id} className="p-3 bg-slate-50 border border-slate-150 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-slate-800">{cl.employeeName}</span>
-                          <span className="bg-slate-200/60 text-[9px] font-bold px-1.5 py-0.5 rounded-md text-slate-500">
-                            ID: {cl.id}
-                          </span>
+                    <div key={cl.id} className="p-3 bg-slate-50 border border-slate-150 rounded-xl flex flex-col gap-3 text-xs">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-slate-800">{cl.employeeName}</span>
+                            <span className="bg-slate-200/60 text-[9px] font-bold px-1.5 py-0.5 rounded-md text-slate-500">
+                              ID: {cl.id}
+                            </span>
+                          </div>
+                          <p className="text-slate-600 font-medium">
+                            Claimed <strong className="text-slate-800 font-extrabold">{cl.hours} Hours</strong> for <span className="text-teal-600 font-bold">{cl.projectName}</span>
+                          </p>
+                          <p className="text-slate-400 text-[10px] font-mono italic">Task: {cl.taskName} | Date: {cl.date}</p>
+                          {cl.reason && (
+                            <p className="text-[11px] text-slate-500 bg-white border border-slate-100 p-1.5 rounded-lg mt-1 font-semibold">
+                              Reason: {cl.reason}
+                            </p>
+                          )}
+                          {cl.status === 'Rejected' && cl.rejectionReason && (
+                            <p className="text-[10px] text-red-600 font-bold bg-red-50 p-1.5 rounded-lg mt-1">
+                              Rejection Note: {cl.rejectionReason}
+                            </p>
+                          )}
                         </div>
-                        <p className="text-slate-600 font-medium">
-                          Claimed <strong className="text-slate-800 font-extrabold">{cl.hours} Hours</strong> for <span className="text-teal-600 font-bold">{cl.projectName}</span>
-                        </p>
-                        <p className="text-slate-400 text-[10px] font-mono italic">Task: {cl.taskName} | Date: {cl.date}</p>
-                        {cl.reason && (
-                          <p className="text-[11px] text-slate-500 bg-white border border-slate-100 p-1.5 rounded-lg mt-1 font-semibold">
-                            Reason: {cl.reason}
-                          </p>
-                        )}
-                        {cl.status === 'Rejected' && cl.rejectionReason && (
-                          <p className="text-[10px] text-red-600 font-bold bg-red-50 p-1.5 rounded-lg mt-1">
-                            Rejection Note: {cl.rejectionReason}
-                          </p>
-                        )}
+
+                        <div className="shrink-0 flex flex-col items-end gap-2">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
+                            cl.status === 'Approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                            cl.status === 'Rejected' ? 'bg-red-50 text-red-700 border border-red-200' :
+                            'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse'
+                          }`}>
+                            {cl.status}
+                          </span>
+
+                          {cl.status === 'Pending' && onApproveClaim && onRejectClaim && (
+                            <div className="flex gap-1.5 mt-1">
+                              <button
+                                onClick={() => onApproveClaim(cl.id)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold p-1 rounded-lg transition-all cursor-pointer shadow-xs"
+                                title="Approve Claim"
+                                id={`dashboard-approve-${cl.id}`}
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setRejectingDashboardClaimId(cl.id);
+                                  setDashboardRejectionReason('');
+                                }}
+                                className="bg-red-600 hover:bg-red-700 text-white font-bold p-1 rounded-lg transition-all cursor-pointer shadow-xs"
+                                title="Reject Claim"
+                                id={`dashboard-reject-${cl.id}`}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="shrink-0 flex items-center">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
-                          cl.status === 'Approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                          cl.status === 'Rejected' ? 'bg-red-50 text-red-700 border border-red-200' :
-                          'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse'
-                        }`}>
-                          {cl.status}
-                        </span>
-                      </div>
+                      {rejectingDashboardClaimId === cl.id && (
+                        <div className="bg-red-50/50 border border-red-150 rounded-lg p-2.5 space-y-2">
+                          <p className="text-[10px] text-red-700 font-bold">Specify Rejection Note</p>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Reason for rejection..."
+                              value={dashboardRejectionReason}
+                              onChange={(e) => setDashboardRejectionReason(e.target.value)}
+                              className="flex-1 bg-white border border-red-200 rounded-lg px-2.5 py-1 text-xs text-slate-700 focus:outline-hidden focus:border-red-500"
+                              id={`dashboard-reject-input-${cl.id}`}
+                            />
+                            <button
+                              onClick={() => {
+                                if (dashboardRejectionReason.trim()) {
+                                  onRejectClaim(cl.id, dashboardRejectionReason.trim());
+                                  setRejectingDashboardClaimId(null);
+                                  setDashboardRejectionReason('');
+                                } else {
+                                  alert('Please enter a rejection reason.');
+                                }
+                              }}
+                              className="bg-red-600 hover:bg-red-700 text-white font-bold px-2.5 py-1 rounded-lg text-[10px] cursor-pointer"
+                              id={`dashboard-reject-confirm-${cl.id}`}
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRejectingDashboardClaimId(null);
+                                setDashboardRejectionReason('');
+                              }}
+                              className="bg-white border border-slate-200 text-slate-600 px-2.5 py-1 rounded-lg text-[10px] hover:bg-slate-50 cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
                 <p className="text-slate-400 italic text-xs text-center py-6">No manual claims logged yet.</p>
               )}
+            </div>
+          </motion.div>
+        )}
+
+        {subTab === 'reports' && (
+          <motion.div
+            key="reports"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="grid grid-cols-1 md:grid-cols-2 gap-6"
+            id="admin-reports-center"
+          >
+            {/* Monthly Working Hours Card */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-5">
+              <div className="flex items-start gap-3">
+                <div className="p-3 bg-teal-50 rounded-xl border border-teal-100 text-teal-600">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-800 font-sans tracking-tight">Monthly Working Hours Report</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Generate structured CSV files aggregating hours logged per staff member for a specific month.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Select Month</label>
+                    <select
+                      value={reportMonth}
+                      onChange={(e) => setReportMonth(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-teal-500 cursor-pointer"
+                    >
+                      <option value="2026-07">July 2026</option>
+                      <option value="2026-06">June 2026</option>
+                      <option value="2026-05">May 2026</option>
+                      <option value="2026-04">April 2026</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Employee Filter</label>
+                    <select
+                      value={reportEmployeeId}
+                      onChange={(e) => setReportEmployeeId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-teal-500 cursor-pointer"
+                    >
+                      <option value="all">All Employees</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50/50 rounded-xl p-3 border border-slate-150 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Total Matches Found</span>
+                    <p className="font-extrabold text-slate-800 mt-0.5">
+                      {reportEmployeeId === 'all' 
+                        ? `${employees.length} Employees`
+                        : `${employees.find(e => e.id === reportEmployeeId)?.name || '1 Employee'}`}
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-400">Format: CSV Spreadsheet</span>
+                </div>
+
+                <button
+                  onClick={downloadMonthlyReport}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold py-3 rounded-xl transition-all cursor-pointer shadow-xs hover:shadow-md"
+                  id="btn-download-monthly"
+                >
+                  <Download className="w-4 h-4 text-teal-400 stroke-[2.5]" />
+                  <span>Download Monthly Report</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Time Claims Report Card */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-5">
+              <div className="flex items-start gap-3">
+                <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 text-indigo-600">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-800 font-sans tracking-tight">Time Claims Report</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Audit spreadsheet tracking off-site, offline, or client-meeting claim requests.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Claim Status</label>
+                    <select
+                      value={claimReportStatus}
+                      onChange={(e) => setClaimReportStatus(e.target.value as any)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="all">All Claims</option>
+                      <option value="Approved">Approved Only</option>
+                      <option value="Pending">Pending Only</option>
+                      <option value="Rejected">Rejected Only</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Employee Filter</label>
+                    <select
+                      value={reportEmployeeId}
+                      onChange={(e) => setReportEmployeeId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="all">All Employees</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50/50 rounded-xl p-3 border border-slate-150 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Total Claims Tracked</span>
+                    <p className="font-extrabold text-indigo-700 mt-0.5">
+                      {claims.filter(cl => {
+                        const statusMatches = claimReportStatus === 'all' || cl.status === claimReportStatus;
+                        const emp = employees.find(e => e.name === cl.employeeName);
+                        const empMatches = reportEmployeeId === 'all' || (emp && emp.id === reportEmployeeId);
+                        return statusMatches && empMatches;
+                      }).length} Claims Match
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-400">Format: CSV Spreadsheet</span>
+                </div>
+
+                <button
+                  onClick={downloadTimeClaimsReport}
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 rounded-xl transition-all cursor-pointer shadow-xs hover:shadow-md"
+                  id="btn-download-claims"
+                >
+                  <Download className="w-4 h-4 text-white stroke-[2.5]" />
+                  <span>Download Time Claims Report</span>
+                </button>
+              </div>
             </div>
           </motion.div>
         )}

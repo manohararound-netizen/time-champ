@@ -8,6 +8,8 @@ interface WorkHistoryProps {
   employees: Employee[];
   projects: Project[];
   onDeleteSession: (sessionId: string) => void;
+  currentEmployeeId?: string | null;
+  isAdmin?: boolean;
 }
 
 export default function WorkHistory({
@@ -15,9 +17,11 @@ export default function WorkHistory({
   employees,
   projects,
   onDeleteSession,
+  currentEmployeeId = null,
+  isAdmin = true,
 }: WorkHistoryProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterEmpId, setFilterEmpId] = useState('all');
+  const [filterEmpId, setFilterEmpId] = useState(() => isAdmin ? 'all' : (currentEmployeeId || ''));
 
   // Format seconds to readable hours & minutes (e.g., 2h 15m)
   const formatDuration = (seconds: number) => {
@@ -117,76 +121,84 @@ export default function WorkHistory({
 
   return (
     <div className="space-y-6">
-      {/* Contributors & Employee Work History Summary */}
-      <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs" id="employee-work-history-panel">
-        <div className="mb-4">
-          <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-indigo-600" />
-            Contributors & Employee Work History
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5">Summary of all team members who have tracked work sessions</p>
-        </div>
+      {/* Contributors & Employee Work History Summary - ADMIN ONLY */}
+      {isAdmin && (
+        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs" id="employee-work-history-panel">
+          <div className="mb-4">
+            <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-indigo-600" />
+              Contributors & Employee Work History
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">Summary of all team members who have tracked work sessions</p>
+          </div>
 
-        {employeesWorkedOn.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {employeesWorkedOn.map(emp => (
-              <div 
-                key={emp.id} 
-                className="bg-slate-50/50 hover:bg-slate-100 border border-slate-150 p-4 rounded-xl transition-all flex items-center gap-3.5"
-                id={`work-history-emp-${emp.id}`}
-              >
-                <img 
-                  src={emp.avatar} 
-                  alt={emp.name} 
-                  className="w-12 h-12 rounded-xl object-cover border border-white shadow-xs"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <h4 className="text-xs font-black text-slate-800 truncate">{emp.name}</h4>
-                    <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-sm shrink-0">
-                      {emp.totalHours} hrs
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 font-medium truncate">{emp.role}</p>
-                  
-                  <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[9px] text-slate-500 font-semibold font-mono">
-                    <span className="truncate max-w-[120px]" title={`Last Task: ${emp.lastTask}`}>
-                      Last: {emp.lastTask}
-                    </span>
-                    <span className="text-slate-400 shrink-0">
-                      {emp.lastActiveDate}
-                    </span>
+          {employeesWorkedOn.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {employeesWorkedOn.map(emp => (
+                <div 
+                  key={emp.id} 
+                  className="bg-slate-50/50 hover:bg-slate-100 border border-slate-150 p-4 rounded-xl transition-all flex items-center gap-3.5"
+                  id={`work-history-emp-${emp.id}`}
+                >
+                  <img 
+                    src={emp.avatar} 
+                    alt={emp.name} 
+                    className="w-12 h-12 rounded-xl object-cover border border-white shadow-xs"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1">
+                      <h4 className="text-xs font-black text-slate-800 truncate">{emp.name}</h4>
+                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-sm shrink-0">
+                        {emp.totalHours} hrs
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-medium truncate">{emp.role}</p>
+                    
+                    <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[9px] text-slate-500 font-semibold font-mono">
+                      <span className="truncate max-w-[120px]" title={`Last Task: ${emp.lastTask}`}>
+                        Last: {emp.lastTask}
+                      </span>
+                      <span className="text-slate-400 shrink-0">
+                        {emp.lastActiveDate}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-6 text-xs text-slate-400 font-semibold">
-            No work sessions recorded yet.
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6 text-xs text-slate-400 font-semibold">
+              No work sessions recorded yet.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filtering and Search Panel */}
       <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4" id="work-history-filter-card">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-lg font-bold text-slate-800 font-display">Work Hours Session Log</h3>
-            <p className="text-xs text-slate-400">Audit, filter, and inspect tracked timesheets and productivity indices</p>
+            <p className="text-xs text-slate-400">
+              {isAdmin 
+                ? 'Audit, filter, and inspect tracked timesheets and productivity indices' 
+                : 'Inspect your personal tracked timesheets and performance history'}
+            </p>
           </div>
-          <button
-            onClick={handleExportCSV}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-xl shadow-xs text-xs transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
-            id="export-csv-btn"
-          >
-            <Download className="w-4 h-4" /> Export Timesheet (.CSV)
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleExportCSV}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-xl shadow-xs text-xs transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
+              id="export-csv-btn"
+            >
+              <Download className="w-4 h-4" /> Export Timesheet (.CSV)
+            </button>
+          )}
         </div>
 
         {/* Input selectors */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+        <div className={`grid gap-3 pt-2 ${isAdmin ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
           {/* Search bar */}
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
@@ -200,23 +212,33 @@ export default function WorkHistory({
             />
           </div>
 
-          {/* Employee Filter */}
-          <div className="relative">
-            <div className="absolute left-3 top-3 text-slate-400">
-              <Filter className="w-3.5 h-3.5" />
+          {/* Employee Filter - ADMIN ONLY */}
+          {isAdmin ? (
+            <div className="relative">
+              <div className="absolute left-3 top-3 text-slate-400">
+                <Filter className="w-3.5 h-3.5" />
+              </div>
+              <select
+                value={filterEmpId}
+                onChange={(e) => setFilterEmpId(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-2.5 text-xs font-semibold text-slate-600 focus:outline-hidden focus:border-indigo-500"
+                id="filter-employee-select"
+              >
+                <option value="all">Filter by Employee: All</option>
+                {employees.map(e => (
+                  <option key={e.id} value={e.id}>{e.name}</option>
+                ))}
+              </select>
             </div>
-            <select
-              value={filterEmpId}
-              onChange={(e) => setFilterEmpId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-2.5 text-xs font-semibold text-slate-600 focus:outline-hidden focus:border-indigo-500"
-              id="filter-employee-select"
-            >
-              <option value="all">Filter by Employee: All</option>
-              {employees.map(e => (
-                <option key={e.id} value={e.id}>{e.name}</option>
-              ))}
-            </select>
-          </div>
+          ) : (
+            <div className="text-xs text-slate-400 font-semibold flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+              </span>
+              <span>Showing timesheet records for active session user: <strong>{employees.find(e => e.id === currentEmployeeId)?.name || 'Standard Employee'}</strong></span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -343,15 +365,17 @@ export default function WorkHistory({
                       </span>
                     </div>
 
-                    {/* Delete action button */}
-                    <button
-                      onClick={() => onDeleteSession(session.id)}
-                      className="text-slate-300 hover:text-red-500 transition-colors p-2 cursor-pointer"
-                      title="Remove Hour Log"
-                      id={`delete-sess-btn-${session.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {/* Delete action button - ADMIN ONLY */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => onDeleteSession(session.id)}
+                        className="text-slate-300 hover:text-red-500 transition-colors p-2 cursor-pointer"
+                        title="Remove Hour Log"
+                        id={`delete-sess-btn-${session.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               );
